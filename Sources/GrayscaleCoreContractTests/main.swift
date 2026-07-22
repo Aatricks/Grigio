@@ -314,21 +314,30 @@ expect(
 )
 expect(
     MissionControlHeuristics.isOverviewWindow(
-        ownerBundleIdentifier: "com.apple.dock",
-        layer: 18,
+        ownerBundleIdentifier: "com.apple.WindowManager",
+        layer: 19,
         frame: leftDisplay.frame,
         displays: displays
     ),
-    "an on-screen Dock overview layer must identify Mission Control"
+    "an on-screen WindowManager Exposé shield must identify Mission Control"
 )
 expect(
     !MissionControlHeuristics.isOverviewWindow(
-        ownerBundleIdentifier: "com.apple.dock",
+        ownerBundleIdentifier: "com.apple.WindowManager",
         layer: 17,
         frame: leftDisplay.frame,
         displays: displays
     ),
-    "an ordinary Dock layer must not identify Mission Control"
+    "an ordinary WindowManager layer must not identify Mission Control"
+)
+expect(
+    !MissionControlHeuristics.isOverviewWindow(
+        ownerBundleIdentifier: "com.apple.dock",
+        layer: 20,
+        frame: leftDisplay.frame,
+        displays: displays
+    ),
+    "the Dock revealing over a fullscreen Space must not identify Mission Control"
 )
 let rawManagedSpaces: [[String: Any]] = [[
     "Display Identifier": "display-a",

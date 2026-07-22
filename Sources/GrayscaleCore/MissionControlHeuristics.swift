@@ -7,7 +7,11 @@ public enum MissionControlHeuristics {
         frame: CGRect,
         displays: [DisplayDescriptor]
     ) -> Bool {
-        guard ownerBundleIdentifier == "com.apple.dock",
+        // Mission Control is presented by WindowManager's ExposeShieldWindow
+        // (layer 19). The Dock also maps display-sized windows in this layer
+        // range when it reveals over a fullscreen Space, so Dock windows
+        // must not count.
+        guard ownerBundleIdentifier == "com.apple.WindowManager",
               (18 ... 20).contains(layer) else { return false }
         return displays.contains {
             FullscreenHeuristics.matchesDisplayBounds(
