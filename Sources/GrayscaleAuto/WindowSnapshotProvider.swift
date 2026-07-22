@@ -59,12 +59,12 @@ enum WindowSnapshotProvider {
     // Video players hold a display-sleep power assertion while actively
     // playing and drop it when paused, so an allowlisted PID holding one is
     // a reliable "is playing" signal without private frameworks.
-    static func activePlaybackPIDs(among allowlistedPIDs: Set<pid_t>) -> Set<pid_t> {
+    static func activePlaybackPIDs(among allowlistedPIDs: Set<pid_t>) -> Set<pid_t>? {
         guard !allowlistedPIDs.isEmpty else { return [] }
         var assertions: Unmanaged<CFDictionary>?
         guard IOPMCopyAssertionsByProcess(&assertions) == kIOReturnSuccess,
               let byProcess = assertions?.takeRetainedValue()
-              as? [NSNumber: [[String: Any]]] else { return [] }
+              as? [NSNumber: [[String: Any]]] else { return nil }
 
         return Set(byProcess.compactMap { pidNumber, records -> pid_t? in
             let pid = pidNumber.int32Value

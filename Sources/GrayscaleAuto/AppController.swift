@@ -18,6 +18,7 @@ final class AppController {
     private var playbackColorSpaces: Set<SpaceOverlayKey> = []
     private var missionControlActive = false
     private var appliedMissionControlActive = false
+    private var playbackTracker = PlaybackTracker()
     private(set) var desiredColorDisplays: Set<CGDirectDisplayID> = []
     private(set) var masterEnabled: Bool
     var onStateChange: (() -> Void)?
@@ -99,7 +100,12 @@ final class AppController {
             watchdogWindows.first { $0.ownerPID == candidate.ownerPID }
         }
         let windows = accessibilityWindows + watchdogWindows
-        let playbackPIDs = WindowSnapshotProvider.activePlaybackPIDs(among: pids)
+        let observation = WindowSnapshotProvider.activePlaybackPIDs(among: pids)
+        let playbackPIDs = playbackTracker.update(
+            allowlistedPIDs: pids,
+            observation: observation,
+            now: ProcessInfo.processInfo.systemUptime
+        )
         let nextPlaybackSpaces = Reconciler.playbackColorSpaces(
             masterEnabled: masterEnabled,
             displays: displays,
