@@ -1,0 +1,11 @@
+{
+  "planPath": "docs/superpowers/plans/2026-07-21-grayscale-auto.md",
+  "tasks": [
+    {"id": 1, "subject": "Package contract and overlay spike", "status": "in_progress", "description": "Build and empirically verify the private backdrop-filter spike.", "userGate": true},
+    {"id": 2, "subject": "State and display attribution", "status": "pending", "blockedBy": [1]},
+    {"id": 3, "subject": "Accessibility and watchdog detection", "status": "pending", "blockedBy": [2]},
+    {"id": 4, "subject": "Backends, status menu, lifecycle", "status": "pending", "blockedBy": [3]},
+    {"id": 5, "subject": "End-to-end acceptance run", "status": "pending", "blockedBy": [4], "userGate": true}
+  ],
+  "lastUpdated": "2026-07-21T00:00:00-04:00"
+}
