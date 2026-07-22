@@ -13,6 +13,7 @@ final class AppController {
     private let backend = DisplayBackendController()
     private var watchdog: Timer?
     private var allowlistedPIDs: Set<pid_t> = []
+    private var desiredColorSpaces: Set<SpaceOverlayKey> = []
     private(set) var desiredColorDisplays: Set<CGDirectDisplayID> = []
     private(set) var masterEnabled: Bool
     var onStateChange: (() -> Void)?
@@ -80,35 +81,37 @@ final class AppController {
         let pids = allowlistedPIDs
 
         let visible = WindowSnapshotProvider.visibleWindows(for: pids)
-        let accessibilityWindows = accessibility.fullscreenWindows(for: pids).filter { candidate in
-            visible.contains { visibleWindow in
-                visibleWindow.ownerPID == candidate.ownerPID
-                    && displays.contains { display in
-                        FullscreenHeuristics.matchesFullscreenContentArea(
-                            visibleWindow.frame,
-                            displayBounds: display.frame,
-                            tolerance: 4
-                        )
-                    }
-            }
-        }
         let watchdogWindows = WindowSnapshotProvider.fullscreenWindows(in: visible, displays: displays)
+        let accessibilityWindows = accessibility.fullscreenWindows(for: pids).compactMap { candidate in
+            watchdogWindows.first { $0.ownerPID == candidate.ownerPID }
+        }
         let windows = accessibilityWindows + watchdogWindows
-        let next = Reconciler.desiredColorDisplays(
+        let nextDisplays = Reconciler.desiredColorDisplays(
+            masterEnabled: masterEnabled,
+            displays: displays,
+            allowlistedPIDs: pids,
+            windows: windows
+        )
+        let nextSpaces = Reconciler.desiredColorSpaces(
             masterEnabled: masterEnabled,
             displays: displays,
             allowlistedPIDs: pids,
             windows: windows
         )
 
-        let changed = next != desiredColorDisplays
+        let changed = nextDisplays != desiredColorDisplays || nextSpaces != desiredColorSpaces
         if changed {
             logger.notice(
-                "Transition reason=\(reason, privacy: .public) from=\(String(describing: self.desiredColorDisplays), privacy: .public) to=\(String(describing: next), privacy: .public)"
+                "Transition reason=\(reason, privacy: .public) displays=\(String(describing: nextDisplays), privacy: .public) spaces=\(String(describing: nextSpaces), privacy: .public)"
             )
-            desiredColorDisplays = next
+            desiredColorDisplays = nextDisplays
+            desiredColorSpaces = nextSpaces
         }
-        backend.apply(desiredColorDisplays: desiredColorDisplays, masterEnabled: masterEnabled)
+        backend.apply(
+            desiredColorSpaces: desiredColorSpaces,
+            desiredColorDisplays: desiredColorDisplays,
+            masterEnabled: masterEnabled
+        )
         if changed { onStateChange?() }
     }
 

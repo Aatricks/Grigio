@@ -34,7 +34,11 @@ final class DisplayBackendController {
         }
     }
 
-    func apply(desiredColorDisplays: Set<CGDirectDisplayID>, masterEnabled: Bool) {
+    func apply(
+        desiredColorSpaces: Set<SpaceOverlayKey>,
+        desiredColorDisplays: Set<CGDirectDisplayID>,
+        masterEnabled: Bool
+    ) {
         switch mode {
         case .perDisplay:
             do {
@@ -46,7 +50,7 @@ final class DisplayBackendController {
             }
             let needed = SpaceOverlayVisibility.visibleOverlayKeys(
                 topology: topology,
-                desiredColorDisplays: desiredColorDisplays,
+                desiredColorSpaces: desiredColorSpaces,
                 masterEnabled: masterEnabled
             )
             for (key, overlay) in overlays {

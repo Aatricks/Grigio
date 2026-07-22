@@ -6,7 +6,7 @@ IINA, mpv, VLC, and QuickTime Player are enabled by default. Browsers are includ
 
 ## How it works
 
-Grigio puts a private `CABackdropLayer` and `CAFilter` overlay in each managed Space. Only the overlay in the current fullscreen Space is hidden, so switching Spaces does not briefly expose color. If the per-display APIs are unavailable, the app falls back to `CGDisplayForceToGray`. The fallback affects every display at once, and the menu shows when it is active.
+Grigio puts a private `CABackdropLayer` and `CAFilter` overlay in each managed Space. A fullscreen window can hide only the overlay in its own Space. This matters in Mission Control, where macOS may report windows from several Spaces as onscreen at the same time. If the per-display APIs are unavailable, the app falls back to `CGDisplayForceToGray`. The fallback affects every display at once, and the menu shows when it is active.
 
 This relies on undocumented macOS APIs. An OS update may break it, and it cannot be distributed through the Mac App Store. Grigio does not use the system Accessibility Color Filter.
 

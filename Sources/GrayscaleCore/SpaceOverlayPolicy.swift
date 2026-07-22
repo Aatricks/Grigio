@@ -30,13 +30,11 @@ public struct ManagedSpaceDescriptor: Equatable, Sendable {
 public enum SpaceOverlayVisibility {
     public static func visibleOverlayKeys(
         topology: [ManagedSpaceDescriptor],
-        desiredColorDisplays: Set<CGDirectDisplayID>,
+        desiredColorSpaces: Set<SpaceOverlayKey>,
         masterEnabled: Bool
     ) -> Set<SpaceOverlayKey> {
         guard masterEnabled else { return [] }
-        return Set(topology.compactMap { space in
-            desiredColorDisplays.contains(space.displayID) && space.isCurrent ? nil : space.key
-        })
+        return Set(topology.map(\.key)).subtracting(desiredColorSpaces)
     }
 }
 

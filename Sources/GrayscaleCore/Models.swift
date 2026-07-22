@@ -15,11 +15,18 @@ public struct WindowCandidate: Equatable, Sendable {
     public let ownerPID: pid_t
     public let frame: CGRect
     public let isFullscreen: Bool
+    public let spaceIDs: Set<UInt64>
 
-    public init(ownerPID: pid_t, frame: CGRect, isFullscreen: Bool) {
+    public init(
+        ownerPID: pid_t,
+        frame: CGRect,
+        isFullscreen: Bool,
+        spaceIDs: Set<UInt64> = []
+    ) {
         self.ownerPID = ownerPID
         self.frame = frame
         self.isFullscreen = isFullscreen
+        self.spaceIDs = spaceIDs
     }
 }
 

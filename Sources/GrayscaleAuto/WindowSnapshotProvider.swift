@@ -22,9 +22,15 @@ enum WindowSnapshotProvider {
             guard let pidNumber = row[kCGWindowOwnerPID] as? NSNumber,
                   allowlistedPIDs.contains(pidNumber.int32Value),
                   (row[kCGWindowLayer] as? NSNumber)?.intValue == 0,
+                  let windowNumber = row[kCGWindowNumber] as? NSNumber,
                   let boundsDictionary = row[kCGWindowBounds] as? NSDictionary,
                   let bounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary) else { return nil }
-            return WindowCandidate(ownerPID: pidNumber.int32Value, frame: bounds, isFullscreen: false)
+            return WindowCandidate(
+                ownerPID: pidNumber.int32Value,
+                frame: bounds,
+                isFullscreen: false,
+                spaceIDs: ManagedSpaces.spaceIDs(forWindowNumber: windowNumber.intValue)
+            )
         }
     }
 
@@ -39,7 +45,12 @@ enum WindowSnapshotProvider {
                     displayBounds: $0.frame
                 )
             }) else { return nil }
-            return WindowCandidate(ownerPID: window.ownerPID, frame: window.frame, isFullscreen: true)
+            return WindowCandidate(
+                ownerPID: window.ownerPID,
+                frame: window.frame,
+                isFullscreen: true,
+                spaceIDs: window.spaceIDs
+            )
         }
     }
 }
