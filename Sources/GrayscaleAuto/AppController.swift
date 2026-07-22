@@ -52,7 +52,7 @@ final class AppController {
         watchdog = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.reconcile(reason: "watchdog") }
         }
-        let missionControlWatchdog = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
+        let missionControlWatchdog = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.refreshMissionControlState() }
         }
         RunLoop.main.add(missionControlWatchdog, forMode: .common)

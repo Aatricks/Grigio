@@ -7,6 +7,7 @@ public final class BackdropOverlay {
     public let backdropLayer: CALayer
 
     public var isVisible: Bool { window.isVisible }
+    public var isGrayscaleActive: Bool { !backdropLayer.isHidden }
 
     public init(frame: CGRect, joinsAllSpaces: Bool = true) throws {
         let window = NSWindow(
@@ -51,5 +52,14 @@ public final class BackdropOverlay {
 
     public func hide() {
         window.orderOut(nil)
+    }
+
+    // Toggling the layer instead of the window keeps the overlay in the
+    // window server, so grayscale can engage while Mission Control is up.
+    public func setGrayscaleActive(_ active: Bool) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        backdropLayer.isHidden = !active
+        CATransaction.commit()
     }
 }

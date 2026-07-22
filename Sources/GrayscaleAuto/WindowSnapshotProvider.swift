@@ -63,6 +63,7 @@ enum WindowSnapshotProvider {
 
         return rows.contains { row in
             guard let layer = (row[kCGWindowLayer] as? NSNumber)?.intValue,
+                  (18 ... 20).contains(layer),
                   let pid = (row[kCGWindowOwnerPID] as? NSNumber)?.int32Value,
                   let boundsDictionary = row[kCGWindowBounds] as? NSDictionary,
                   let frame = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary) else {

@@ -13,6 +13,7 @@ final class DisplayBackendController {
     private let logger = Logger(subsystem: "com.aatricks.grayscale-auto", category: "backend")
     private(set) var mode: GrayscaleMode
     private var overlays: [SpaceOverlayKey: BackdropOverlay] = [:]
+    private var missionControlShields: [CGDirectDisplayID: BackdropOverlay] = [:]
     private var topology: [ManagedSpaceDescriptor] = []
 
     init() {
@@ -42,6 +43,13 @@ final class DisplayBackendController {
     ) {
         switch mode {
         case .perDisplay:
+            // A fullscreen Space's bound overlay is not part of the scene
+            // Mission Control presents, so an all-Spaces shield carries
+            // grayscale for as long as Mission Control is up.
+            for shield in missionControlShields.values {
+                if !shield.isVisible { shield.show() }
+                shield.setGrayscaleActive(masterEnabled && forceGrayscale)
+            }
             do {
                 try updateCurrentSpaces()
             } catch {
@@ -58,12 +66,13 @@ final class DisplayBackendController {
                 forceGrayscale: forceGrayscale
             )
             for (key, overlay) in overlays {
+                if !overlay.isVisible { overlay.show() }
                 switch OverlayVisibility.action(
-                    currentlyVisible: overlay.isVisible,
+                    currentlyVisible: overlay.isGrayscaleActive,
                     shouldBeVisible: needed.contains(key)
                 ) {
-                case .show: overlay.show()
-                case .hide: overlay.hide()
+                case .show: overlay.setGrayscaleActive(true)
+                case .hide: overlay.setGrayscaleActive(false)
                 case nil: break
                 }
             }
@@ -78,6 +87,8 @@ final class DisplayBackendController {
     func tearDown() {
         overlays.values.forEach { $0.hide() }
         overlays.removeAll()
+        missionControlShields.values.forEach { $0.hide() }
+        missionControlShields.removeAll()
         topology.removeAll()
         _ = GlobalGrayscaleBackend.setGrayscale(false)
     }
@@ -105,6 +116,16 @@ final class DisplayBackendController {
             overlays.removeValue(forKey: key)?.hide()
         }
 
+        for displayID in Set(missionControlShields.keys).subtracting(screens.keys) {
+            missionControlShields.removeValue(forKey: displayID)?.hide()
+        }
+        for (displayID, screen) in screens where missionControlShields[displayID] == nil {
+            let shield = try BackdropOverlay(frame: screen.frame, joinsAllSpaces: true)
+            shield.setGrayscaleActive(false)
+            shield.show()
+            missionControlShields[displayID] = shield
+        }
+
         let allSpaceIDs = Set(nextTopology.map(\.spaceID))
         for space in nextTopology where overlays[space.key] == nil {
             guard let screen = screens[space.displayID] else { continue }
@@ -122,6 +143,7 @@ final class DisplayBackendController {
                     userInfo: [NSLocalizedDescriptionKey: "Could not bind overlay to Space \(space.spaceID)"]
                 )
             }
+            overlay.show()
             overlays[space.key] = overlay
         }
         topology = nextTopology

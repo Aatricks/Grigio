@@ -40,6 +40,14 @@ MainActor.assumeIsolated {
         expect(overlay.isVisible, "show must make the overlay visible")
         overlay.hide()
         expect(!overlay.isVisible, "hide must make the overlay invisible")
+        expect(overlay.isGrayscaleActive, "a new overlay must start with grayscale active")
+        overlay.show()
+        overlay.setGrayscaleActive(false)
+        expect(overlay.backdropLayer.isHidden, "deactivating grayscale must hide the backdrop layer")
+        expect(overlay.isVisible, "deactivating grayscale must keep the overlay window ordered in")
+        overlay.setGrayscaleActive(true)
+        expect(overlay.isGrayscaleActive, "reactivating grayscale must unhide the backdrop layer")
+        overlay.hide()
         let spaceBoundOverlay = try BackdropOverlay(frame: frame, joinsAllSpaces: false)
         expect(
             !spaceBoundOverlay.window.collectionBehavior.contains(.canJoinAllSpaces),
