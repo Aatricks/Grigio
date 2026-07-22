@@ -2,6 +2,24 @@ import CoreGraphics
 import Darwin
 
 public enum Reconciler {
+    public static func desiredColorSpaces(
+        masterEnabled: Bool,
+        displays: [DisplayDescriptor],
+        allowlistedPIDs: Set<pid_t>,
+        windows: [WindowCandidate]
+    ) -> Set<SpaceOverlayKey> {
+        guard masterEnabled else { return [] }
+
+        return Set(windows.flatMap { window -> [SpaceOverlayKey] in
+            guard window.isFullscreen,
+                  allowlistedPIDs.contains(window.ownerPID),
+                  let displayID = DisplayAttribution.displayID(for: window.frame, among: displays) else {
+                return []
+            }
+            return window.spaceIDs.map { SpaceOverlayKey(displayID: displayID, spaceID: $0) }
+        })
+    }
+
     public static func desiredColorDisplays(
         masterEnabled: Bool,
         displays: [DisplayDescriptor],

@@ -15,28 +15,39 @@ public struct ManagedSpaceDescriptor: Equatable, Sendable {
     public let displayID: CGDirectDisplayID
     public let spaceID: UInt64
     public let isCurrent: Bool
+    public let isFullscreenApplicationSpace: Bool
 
     public var key: SpaceOverlayKey {
         SpaceOverlayKey(displayID: displayID, spaceID: spaceID)
     }
 
-    public init(displayID: CGDirectDisplayID, spaceID: UInt64, isCurrent: Bool) {
+    public init(
+        displayID: CGDirectDisplayID,
+        spaceID: UInt64,
+        isCurrent: Bool,
+        isFullscreenApplicationSpace: Bool = false
+    ) {
         self.displayID = displayID
         self.spaceID = spaceID
         self.isCurrent = isCurrent
+        self.isFullscreenApplicationSpace = isFullscreenApplicationSpace
     }
 }
 
 public enum SpaceOverlayVisibility {
     public static func visibleOverlayKeys(
         topology: [ManagedSpaceDescriptor],
-        desiredColorDisplays: Set<CGDirectDisplayID>,
-        masterEnabled: Bool
+        desiredColorSpaces: Set<SpaceOverlayKey>,
+        masterEnabled: Bool,
+        forceGrayscale: Bool = false
     ) -> Set<SpaceOverlayKey> {
         guard masterEnabled else { return [] }
-        return Set(topology.compactMap { space in
-            desiredColorDisplays.contains(space.displayID) && space.isCurrent ? nil : space.key
-        })
+        let allKeys = Set(topology.map(\.key))
+        guard !forceGrayscale else { return allKeys }
+        let fullscreenKeys = Set(
+            topology.lazy.filter(\.isFullscreenApplicationSpace).map(\.key)
+        )
+        return allKeys.subtracting(desiredColorSpaces.intersection(fullscreenKeys))
     }
 }
 
@@ -55,7 +66,8 @@ public enum ManagedSpaceTopologyParser {
                 return ManagedSpaceDescriptor(
                     displayID: displayID,
                     spaceID: spaceID,
-                    isCurrent: spaceID == current
+                    isCurrent: spaceID == current,
+                    isFullscreenApplicationSpace: (space["type"] as? NSNumber)?.intValue == 4
                 )
             }
         }

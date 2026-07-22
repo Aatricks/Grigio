@@ -98,6 +98,30 @@ let desired = Reconciler.desiredColorDisplays(
 )
 expect(desired == [2], "only an allowlisted fullscreen window's display must receive color")
 
+let desiredSpaces = Reconciler.desiredColorSpaces(
+    masterEnabled: true,
+    displays: displays,
+    allowlistedPIDs: [42],
+    windows: [
+        WindowCandidate(
+            ownerPID: 42,
+            frame: rightDisplay.frame,
+            isFullscreen: true,
+            spaceIDs: [21]
+        ),
+        WindowCandidate(
+            ownerPID: 99,
+            frame: leftDisplay.frame,
+            isFullscreen: true,
+            spaceIDs: [10]
+        ),
+    ]
+)
+expect(
+    desiredSpaces == [SpaceOverlayKey(displayID: 2, spaceID: 21)],
+    "color permission must retain the qualifying fullscreen window's Space"
+)
+
 let disabledDesired = Reconciler.desiredColorDisplays(
     masterEnabled: false,
     displays: displays,
@@ -187,7 +211,12 @@ expect(
 )
 
 let spaceTopology = [
-    ManagedSpaceDescriptor(displayID: 1, spaceID: 10, isCurrent: true),
+    ManagedSpaceDescriptor(
+        displayID: 1,
+        spaceID: 10,
+        isCurrent: true,
+        isFullscreenApplicationSpace: true
+    ),
     ManagedSpaceDescriptor(displayID: 1, spaceID: 11, isCurrent: false),
     ManagedSpaceDescriptor(displayID: 2, spaceID: 20, isCurrent: true),
     ManagedSpaceDescriptor(displayID: 2, spaceID: 21, isCurrent: false),
@@ -195,7 +224,7 @@ let spaceTopology = [
 expect(
     SpaceOverlayVisibility.visibleOverlayKeys(
         topology: spaceTopology,
-        desiredColorDisplays: [],
+        desiredColorSpaces: [],
         masterEnabled: true
     ) == Set(spaceTopology.map(\.key)),
     "grayscale-by-default must keep an overlay visible on every Space"
@@ -203,29 +232,102 @@ expect(
 expect(
     SpaceOverlayVisibility.visibleOverlayKeys(
         topology: spaceTopology,
-        desiredColorDisplays: [1],
+        desiredColorSpaces: [SpaceOverlayKey(displayID: 1, spaceID: 10)],
         masterEnabled: true
     ) == [
         SpaceOverlayKey(displayID: 1, spaceID: 11),
         SpaceOverlayKey(displayID: 2, spaceID: 20),
         SpaceOverlayKey(displayID: 2, spaceID: 21),
     ],
-    "color must hide only the current Space overlay on the qualifying display"
+    "color must hide only the qualifying fullscreen window's Space overlay"
 )
 expect(
     SpaceOverlayVisibility.visibleOverlayKeys(
         topology: spaceTopology,
-        desiredColorDisplays: [1],
+        desiredColorSpaces: [SpaceOverlayKey(displayID: 1, spaceID: 10)],
         masterEnabled: false
     ).isEmpty,
     "master disable must hide every Space-bound overlay"
+)
+let switchedSpaceTopology = [
+    ManagedSpaceDescriptor(
+        displayID: 1,
+        spaceID: 10,
+        isCurrent: false,
+        isFullscreenApplicationSpace: true
+    ),
+    ManagedSpaceDescriptor(displayID: 1, spaceID: 11, isCurrent: true),
+    ManagedSpaceDescriptor(displayID: 2, spaceID: 20, isCurrent: true),
+    ManagedSpaceDescriptor(displayID: 2, spaceID: 21, isCurrent: false),
+]
+expect(
+    SpaceOverlayVisibility.visibleOverlayKeys(
+        topology: switchedSpaceTopology,
+        desiredColorSpaces: [SpaceOverlayKey(displayID: 1, spaceID: 10)],
+        masterEnabled: true
+    ) == [
+        SpaceOverlayKey(displayID: 1, spaceID: 11),
+        SpaceOverlayKey(displayID: 2, spaceID: 20),
+        SpaceOverlayKey(displayID: 2, spaceID: 21),
+    ],
+    "a stale fullscreen observation must hide only its own Space overlay"
+)
+let mixedSpaceTopology = [
+    ManagedSpaceDescriptor(
+        displayID: 1,
+        spaceID: 10,
+        isCurrent: true,
+        isFullscreenApplicationSpace: false
+    ),
+    ManagedSpaceDescriptor(
+        displayID: 1,
+        spaceID: 11,
+        isCurrent: false,
+        isFullscreenApplicationSpace: true
+    ),
+]
+expect(
+    SpaceOverlayVisibility.visibleOverlayKeys(
+        topology: mixedSpaceTopology,
+        desiredColorSpaces: [SpaceOverlayKey(displayID: 1, spaceID: 10)],
+        masterEnabled: true,
+        forceGrayscale: false
+    ) == Set(mixedSpaceTopology.map(\.key)),
+    "a window moved onto a desktop Space must not grant that Space color"
+)
+expect(
+    SpaceOverlayVisibility.visibleOverlayKeys(
+        topology: mixedSpaceTopology,
+        desiredColorSpaces: [SpaceOverlayKey(displayID: 1, spaceID: 11)],
+        masterEnabled: true,
+        forceGrayscale: true
+    ) == Set(mixedSpaceTopology.map(\.key)),
+    "Mission Control must keep every Space overlay visible"
+)
+expect(
+    MissionControlHeuristics.isOverviewWindow(
+        ownerBundleIdentifier: "com.apple.dock",
+        layer: 18,
+        frame: leftDisplay.frame,
+        displays: displays
+    ),
+    "an on-screen Dock overview layer must identify Mission Control"
+)
+expect(
+    !MissionControlHeuristics.isOverviewWindow(
+        ownerBundleIdentifier: "com.apple.dock",
+        layer: 17,
+        frame: leftDisplay.frame,
+        displays: displays
+    ),
+    "an ordinary Dock layer must not identify Mission Control"
 )
 let rawManagedSpaces: [[String: Any]] = [[
     "Display Identifier": "display-a",
     "Current Space": ["ManagedSpaceID": NSNumber(value: 11)],
     "Spaces": [
-        ["ManagedSpaceID": NSNumber(value: 10)],
-        ["ManagedSpaceID": NSNumber(value: 11)],
+        ["ManagedSpaceID": NSNumber(value: 10), "type": NSNumber(value: 0)],
+        ["ManagedSpaceID": NSNumber(value: 11), "type": NSNumber(value: 4)],
     ],
 ]]
 expect(
@@ -233,8 +335,18 @@ expect(
         rawManagedSpaces,
         displayIDsByUUID: ["display-a": 1]
     ) == [
-        ManagedSpaceDescriptor(displayID: 1, spaceID: 10, isCurrent: false),
-        ManagedSpaceDescriptor(displayID: 1, spaceID: 11, isCurrent: true),
+        ManagedSpaceDescriptor(
+            displayID: 1,
+            spaceID: 10,
+            isCurrent: false,
+            isFullscreenApplicationSpace: false
+        ),
+        ManagedSpaceDescriptor(
+            displayID: 1,
+            spaceID: 11,
+            isCurrent: true,
+            isFullscreenApplicationSpace: true
+        ),
     ],
     "managed display dictionaries must map every Space and identify the current one"
 )

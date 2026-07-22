@@ -12,13 +12,19 @@ final class AppController {
     private let lifecycle = LifecycleMonitor()
     private let backend = DisplayBackendController()
     private var watchdog: Timer?
+    private var missionControlWatchdog: Timer?
     private var allowlistedPIDs: Set<pid_t> = []
+    private var desiredColorSpaces: Set<SpaceOverlayKey> = []
+    private var missionControlActive = false
+    private var appliedMissionControlActive = false
     private(set) var desiredColorDisplays: Set<CGDirectDisplayID> = []
     private(set) var masterEnabled: Bool
     var onStateChange: (() -> Void)?
 
     var mode: GrayscaleMode { backend.mode }
-    var isShowingColor: Bool { !desiredColorDisplays.isEmpty || !masterEnabled }
+    var isShowingColor: Bool {
+        !masterEnabled || (!missionControlActive && !desiredColorDisplays.isEmpty)
+    }
 
     init() {
         let defaults = UserDefaults.standard
@@ -46,12 +52,19 @@ final class AppController {
         watchdog = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.reconcile(reason: "watchdog") }
         }
+        let missionControlWatchdog = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.refreshMissionControlState() }
+        }
+        RunLoop.main.add(missionControlWatchdog, forMode: .common)
+        self.missionControlWatchdog = missionControlWatchdog
         reconcile(reason: "event:launch")
     }
 
     func stop() {
         watchdog?.invalidate()
         watchdog = nil
+        missionControlWatchdog?.invalidate()
+        missionControlWatchdog = nil
         lifecycle.stop()
         backend.tearDown()
     }
@@ -80,35 +93,41 @@ final class AppController {
         let pids = allowlistedPIDs
 
         let visible = WindowSnapshotProvider.visibleWindows(for: pids)
-        let accessibilityWindows = accessibility.fullscreenWindows(for: pids).filter { candidate in
-            visible.contains { visibleWindow in
-                visibleWindow.ownerPID == candidate.ownerPID
-                    && displays.contains { display in
-                        FullscreenHeuristics.matchesFullscreenContentArea(
-                            visibleWindow.frame,
-                            displayBounds: display.frame,
-                            tolerance: 4
-                        )
-                    }
-            }
-        }
         let watchdogWindows = WindowSnapshotProvider.fullscreenWindows(in: visible, displays: displays)
+        let accessibilityWindows = accessibility.fullscreenWindows(for: pids).compactMap { candidate in
+            watchdogWindows.first { $0.ownerPID == candidate.ownerPID }
+        }
         let windows = accessibilityWindows + watchdogWindows
-        let next = Reconciler.desiredColorDisplays(
+        let nextDisplays = Reconciler.desiredColorDisplays(
+            masterEnabled: masterEnabled,
+            displays: displays,
+            allowlistedPIDs: pids,
+            windows: windows
+        )
+        let nextSpaces = Reconciler.desiredColorSpaces(
             masterEnabled: masterEnabled,
             displays: displays,
             allowlistedPIDs: pids,
             windows: windows
         )
 
-        let changed = next != desiredColorDisplays
+        let changed = nextDisplays != desiredColorDisplays
+            || nextSpaces != desiredColorSpaces
+            || missionControlActive != appliedMissionControlActive
         if changed {
             logger.notice(
-                "Transition reason=\(reason, privacy: .public) from=\(String(describing: self.desiredColorDisplays), privacy: .public) to=\(String(describing: next), privacy: .public)"
+                "Transition reason=\(reason, privacy: .public) missionControl=\(self.missionControlActive, privacy: .public) displays=\(String(describing: nextDisplays), privacy: .public) spaces=\(String(describing: nextSpaces), privacy: .public)"
             )
-            desiredColorDisplays = next
+            desiredColorDisplays = nextDisplays
+            desiredColorSpaces = nextSpaces
+            appliedMissionControlActive = missionControlActive
         }
-        backend.apply(desiredColorDisplays: desiredColorDisplays, masterEnabled: masterEnabled)
+        backend.apply(
+            desiredColorSpaces: desiredColorSpaces,
+            desiredColorDisplays: desiredColorDisplays,
+            masterEnabled: masterEnabled,
+            forceGrayscale: missionControlActive
+        )
         if changed { onStateChange?() }
     }
 
@@ -122,6 +141,15 @@ final class AppController {
         logger.notice(
             "Observed allowlistedPIDs=\(String(describing: self.allowlistedPIDs), privacy: .public) accessibilityTrusted=\(self.accessibility.isTrusted, privacy: .public)"
         )
+    }
+
+    private func refreshMissionControlState() {
+        let active = WindowSnapshotProvider.isMissionControlActive(
+            displays: WindowSnapshotProvider.activeDisplays()
+        )
+        guard active != missionControlActive else { return }
+        missionControlActive = active
+        reconcile(reason: active ? "mission-control-entered" : "mission-control-exited")
     }
 
 }
