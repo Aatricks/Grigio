@@ -38,6 +38,7 @@ public enum SpaceOverlayVisibility {
     public static func visibleOverlayKeys(
         topology: [ManagedSpaceDescriptor],
         desiredColorSpaces: Set<SpaceOverlayKey>,
+        playbackColorSpaces: Set<SpaceOverlayKey> = [],
         masterEnabled: Bool,
         forceGrayscale: Bool = false
     ) -> Set<SpaceOverlayKey> {
@@ -47,7 +48,12 @@ public enum SpaceOverlayVisibility {
         let fullscreenKeys = Set(
             topology.lazy.filter(\.isFullscreenApplicationSpace).map(\.key)
         )
-        return allKeys.subtracting(desiredColorSpaces.intersection(fullscreenKeys))
+        // Fullscreen color is gated to genuine fullscreen Spaces; active
+        // playback also colors the desktop Space it plays on, since a
+        // windowed video cannot be desaturated cheaply.
+        let colored = desiredColorSpaces.intersection(fullscreenKeys)
+            .union(playbackColorSpaces)
+        return allKeys.subtracting(colored)
     }
 }
 

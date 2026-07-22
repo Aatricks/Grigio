@@ -138,6 +138,49 @@ let disabledDesired = Reconciler.desiredColorDisplays(
 )
 expect(disabledDesired == [1, 2], "master disable must restore color to every display")
 
+let windowedPlayer = WindowCandidate(
+    ownerPID: 42,
+    frame: CGRect(x: 30, y: 30, width: 900, height: 700),
+    isFullscreen: false,
+    spaceIDs: [10]
+)
+expect(
+    Reconciler.playbackColorSpaces(
+        masterEnabled: true,
+        displays: displays,
+        activePlaybackPIDs: [42],
+        windows: [windowedPlayer]
+    ) == [SpaceOverlayKey(displayID: 1, spaceID: 10)],
+    "an actively playing windowed player must color its own Space"
+)
+expect(
+    Reconciler.playbackColorSpaces(
+        masterEnabled: true,
+        displays: displays,
+        activePlaybackPIDs: [],
+        windows: [windowedPlayer]
+    ).isEmpty,
+    "a player that is not actively playing must not color any Space"
+)
+expect(
+    Reconciler.playbackColorDisplays(
+        masterEnabled: true,
+        displays: displays,
+        activePlaybackPIDs: [42],
+        windows: [windowedPlayer]
+    ) == [1],
+    "active playback must color the display the player window sits on"
+)
+expect(
+    Reconciler.playbackColorSpaces(
+        masterEnabled: false,
+        displays: displays,
+        activePlaybackPIDs: [42],
+        windows: [windowedPlayer]
+    ).isEmpty,
+    "master disable must not compute playback color Spaces"
+)
+
 let suiteName = "com.aatricks.grayscale-auto.contract.\(UUID().uuidString)"
 let defaults = UserDefaults(suiteName: suiteName)!
 defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -311,6 +354,26 @@ expect(
         forceGrayscale: true
     ) == Set(mixedSpaceTopology.map(\.key)),
     "Mission Control must keep every Space overlay visible"
+)
+expect(
+    SpaceOverlayVisibility.visibleOverlayKeys(
+        topology: mixedSpaceTopology,
+        desiredColorSpaces: [],
+        playbackColorSpaces: [SpaceOverlayKey(displayID: 1, spaceID: 10)],
+        masterEnabled: true,
+        forceGrayscale: false
+    ) == [SpaceOverlayKey(displayID: 1, spaceID: 11)],
+    "active playback must color its desktop Space even though it is not a fullscreen Space"
+)
+expect(
+    SpaceOverlayVisibility.visibleOverlayKeys(
+        topology: mixedSpaceTopology,
+        desiredColorSpaces: [],
+        playbackColorSpaces: [SpaceOverlayKey(displayID: 1, spaceID: 10)],
+        masterEnabled: true,
+        forceGrayscale: true
+    ) == Set(mixedSpaceTopology.map(\.key)),
+    "Mission Control must override playback color and keep every Space gray"
 )
 expect(
     MissionControlHeuristics.isOverviewWindow(

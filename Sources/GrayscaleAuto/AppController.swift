@@ -15,6 +15,7 @@ final class AppController {
     private var missionControlWatchdog: Timer?
     private var allowlistedPIDs: Set<pid_t> = []
     private var desiredColorSpaces: Set<SpaceOverlayKey> = []
+    private var playbackColorSpaces: Set<SpaceOverlayKey> = []
     private var missionControlActive = false
     private var appliedMissionControlActive = false
     private(set) var desiredColorDisplays: Set<CGDirectDisplayID> = []
@@ -98,12 +99,25 @@ final class AppController {
             watchdogWindows.first { $0.ownerPID == candidate.ownerPID }
         }
         let windows = accessibilityWindows + watchdogWindows
+        let playbackPIDs = WindowSnapshotProvider.activePlaybackPIDs(among: pids)
+        let nextPlaybackSpaces = Reconciler.playbackColorSpaces(
+            masterEnabled: masterEnabled,
+            displays: displays,
+            activePlaybackPIDs: playbackPIDs,
+            windows: visible
+        )
+        let playbackDisplays = Reconciler.playbackColorDisplays(
+            masterEnabled: masterEnabled,
+            displays: displays,
+            activePlaybackPIDs: playbackPIDs,
+            windows: visible
+        )
         let nextDisplays = Reconciler.desiredColorDisplays(
             masterEnabled: masterEnabled,
             displays: displays,
             allowlistedPIDs: pids,
             windows: windows
-        )
+        ).union(playbackDisplays)
         let nextSpaces = Reconciler.desiredColorSpaces(
             masterEnabled: masterEnabled,
             displays: displays,
@@ -113,17 +127,20 @@ final class AppController {
 
         let changed = nextDisplays != desiredColorDisplays
             || nextSpaces != desiredColorSpaces
+            || nextPlaybackSpaces != playbackColorSpaces
             || missionControlActive != appliedMissionControlActive
         if changed {
             logger.notice(
-                "Transition reason=\(reason, privacy: .public) missionControl=\(self.missionControlActive, privacy: .public) displays=\(String(describing: nextDisplays), privacy: .public) spaces=\(String(describing: nextSpaces), privacy: .public)"
+                "Transition reason=\(reason, privacy: .public) missionControl=\(self.missionControlActive, privacy: .public) displays=\(String(describing: nextDisplays), privacy: .public) spaces=\(String(describing: nextSpaces), privacy: .public) playback=\(String(describing: nextPlaybackSpaces), privacy: .public)"
             )
             desiredColorDisplays = nextDisplays
             desiredColorSpaces = nextSpaces
+            playbackColorSpaces = nextPlaybackSpaces
             appliedMissionControlActive = missionControlActive
         }
         backend.apply(
             desiredColorSpaces: desiredColorSpaces,
+            playbackColorSpaces: playbackColorSpaces,
             desiredColorDisplays: desiredColorDisplays,
             masterEnabled: masterEnabled,
             forceGrayscale: missionControlActive

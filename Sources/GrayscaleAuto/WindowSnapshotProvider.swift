@@ -3,6 +3,7 @@ import AppKit
 import CoreGraphics
 import Darwin
 import GrayscaleCore
+import IOKit.pwr_mgt
 
 enum WindowSnapshotProvider {
     static func activeDisplays() -> [DisplayDescriptor] {
@@ -53,6 +54,29 @@ enum WindowSnapshotProvider {
                 spaceIDs: window.spaceIDs
             )
         }
+    }
+
+    // Video players hold a display-sleep power assertion while actively
+    // playing and drop it when paused, so an allowlisted PID holding one is
+    // a reliable "is playing" signal without private frameworks.
+    static func activePlaybackPIDs(among allowlistedPIDs: Set<pid_t>) -> Set<pid_t> {
+        guard !allowlistedPIDs.isEmpty else { return [] }
+        var assertions: Unmanaged<CFDictionary>?
+        guard IOPMCopyAssertionsByProcess(&assertions) == kIOReturnSuccess,
+              let byProcess = assertions?.takeRetainedValue()
+              as? [NSNumber: [[String: Any]]] else { return [] }
+
+        return Set(byProcess.compactMap { pidNumber, records -> pid_t? in
+            let pid = pidNumber.int32Value
+            guard allowlistedPIDs.contains(pid) else { return nil }
+            let holdsDisplayAssertion = records.contains { record in
+                let type = record["AssertionTrueType"] as? String
+                    ?? record[kIOPMAssertionTypeKey] as? String
+                return type == kIOPMAssertionTypePreventUserIdleDisplaySleep
+                    || type == "NoDisplaySleepAssertion"
+            }
+            return holdsDisplayAssertion ? pid : nil
+        })
     }
 
     static func isMissionControlActive(displays: [DisplayDescriptor]) -> Bool {

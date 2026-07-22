@@ -37,6 +37,7 @@ final class DisplayBackendController {
 
     func apply(
         desiredColorSpaces: Set<SpaceOverlayKey>,
+        playbackColorSpaces: Set<SpaceOverlayKey>,
         desiredColorDisplays: Set<CGDirectDisplayID>,
         masterEnabled: Bool,
         forceGrayscale: Bool
@@ -62,6 +63,7 @@ final class DisplayBackendController {
             let needed = SpaceOverlayVisibility.visibleOverlayKeys(
                 topology: topology,
                 desiredColorSpaces: desiredColorSpaces,
+                playbackColorSpaces: playbackColorSpaces,
                 masterEnabled: masterEnabled,
                 forceGrayscale: forceGrayscale
             )
