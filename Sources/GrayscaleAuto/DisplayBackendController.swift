@@ -37,7 +37,8 @@ final class DisplayBackendController {
     func apply(
         desiredColorSpaces: Set<SpaceOverlayKey>,
         desiredColorDisplays: Set<CGDirectDisplayID>,
-        masterEnabled: Bool
+        masterEnabled: Bool,
+        forceGrayscale: Bool
     ) {
         switch mode {
         case .perDisplay:
@@ -45,13 +46,16 @@ final class DisplayBackendController {
                 try updateCurrentSpaces()
             } catch {
                 switchToGlobalFallback(error)
-                _ = GlobalGrayscaleBackend.setGrayscale(masterEnabled && desiredColorDisplays.isEmpty)
+                _ = GlobalGrayscaleBackend.setGrayscale(
+                    masterEnabled && (forceGrayscale || desiredColorDisplays.isEmpty)
+                )
                 return
             }
             let needed = SpaceOverlayVisibility.visibleOverlayKeys(
                 topology: topology,
                 desiredColorSpaces: desiredColorSpaces,
-                masterEnabled: masterEnabled
+                masterEnabled: masterEnabled,
+                forceGrayscale: forceGrayscale
             )
             for (key, overlay) in overlays {
                 switch OverlayVisibility.action(
@@ -65,7 +69,9 @@ final class DisplayBackendController {
             }
         case .globalFallback:
             overlays.values.forEach { $0.hide() }
-            _ = GlobalGrayscaleBackend.setGrayscale(masterEnabled && desiredColorDisplays.isEmpty)
+            _ = GlobalGrayscaleBackend.setGrayscale(
+                masterEnabled && (forceGrayscale || desiredColorDisplays.isEmpty)
+            )
         }
     }
 
@@ -145,7 +151,8 @@ final class DisplayBackendController {
             ManagedSpaceDescriptor(
                 displayID: space.displayID,
                 spaceID: space.spaceID,
-                isCurrent: current[space.displayID] == space.spaceID
+                isCurrent: current[space.displayID] == space.spaceID,
+                isFullscreenApplicationSpace: space.isFullscreenApplicationSpace
             )
         }
     }

@@ -1,4 +1,5 @@
 import ApplicationServices
+import AppKit
 import CoreGraphics
 import Darwin
 import GrayscaleCore
@@ -50,6 +51,28 @@ enum WindowSnapshotProvider {
                 frame: window.frame,
                 isFullscreen: true,
                 spaceIDs: window.spaceIDs
+            )
+        }
+    }
+
+    static func isMissionControlActive(displays: [DisplayDescriptor]) -> Bool {
+        guard let rows = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements],
+            kCGNullWindowID
+        ) as? [[CFString: Any]] else { return false }
+
+        return rows.contains { row in
+            guard let layer = (row[kCGWindowLayer] as? NSNumber)?.intValue,
+                  let pid = (row[kCGWindowOwnerPID] as? NSNumber)?.int32Value,
+                  let boundsDictionary = row[kCGWindowBounds] as? NSDictionary,
+                  let frame = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary) else {
+                return false
+            }
+            return MissionControlHeuristics.isOverviewWindow(
+                ownerBundleIdentifier: NSRunningApplication(processIdentifier: pid)?.bundleIdentifier,
+                layer: layer,
+                frame: frame,
+                displays: displays
             )
         }
     }
