@@ -461,6 +461,44 @@ MainActor.assumeIsolated {
     }
 }
 
+// Test PlaybackTracker contract
+do {
+    var tracker = PlaybackTracker()
+    let now: TimeInterval = 1000.0
+    let allowlisted: Set<pid_t> = [100, 101]
+
+    // 1. Immediate activation on positive playback observations
+    let active1 = tracker.update(allowlistedPIDs: allowlisted, observation: [100], now: now)
+    expect(active1 == [100], "immediate activation for pid 100")
+
+    // 2. Retention on an empty observation (for less than 2.0s)
+    let active2 = tracker.update(allowlistedPIDs: allowlisted, observation: [], now: now + 1.0)
+    expect(active2 == [100], "retention on empty observation at 1.0s")
+
+    // 3. Retention on nil/unknown observation (for less than 2.0s)
+    let active3 = tracker.update(allowlistedPIDs: allowlisted, observation: nil, now: now + 1.5)
+    expect(active3 == [100], "retention on nil/unknown observation at 1.5s")
+
+    // 4. Exact expiry at 2.0 seconds
+    let active4 = tracker.update(allowlistedPIDs: allowlisted, observation: [], now: now + 2.0)
+    expect(active4 == [], "exact expiry at 2.0s")
+
+    // 5. Immediate removal when no longer allowlisted
+    _ = tracker.update(allowlistedPIDs: allowlisted, observation: [100], now: now + 3.0)
+    let active5 = tracker.update(allowlistedPIDs: [101], observation: [], now: now + 3.1)
+    expect(active5 == [], "immediate removal when no longer allowlisted")
+
+    // 6. Immediate reacquisition
+    let active6 = tracker.update(allowlistedPIDs: [100], observation: [100], now: now + 4.0)
+    expect(active6 == [100], "immediate reacquisition on new positive observation")
+
+    // 7. Immediate reacquisition / refresh at exact 2.0s expiry boundary
+    let active7 = tracker.update(allowlistedPIDs: [100], observation: [100], now: now + 6.0)
+    expect(active7 == [100], "immediate reacquisition at 2.0s expiry boundary")
+    let active8 = tracker.update(allowlistedPIDs: [100], observation: [], now: now + 8.0)
+    expect(active8 == [], "exact expiry 2.0s after boundary reacquisition")
+}
+
 if failures > 0 {
     exit(1)
 }
