@@ -35,6 +35,23 @@ public struct ManagedSpaceDescriptor: Equatable, Sendable {
 }
 
 public enum SpaceOverlayVisibility {
+    public static func requiresReconciliation(
+        knownKeys: Set<SpaceOverlayKey>,
+        observedKeys: Set<SpaceOverlayKey>
+    ) -> Bool {
+        knownKeys != observedKeys
+    }
+
+    public static func requiresReconciliation(
+        knownTopology: [ManagedSpaceDescriptor],
+        observedTopology: [ManagedSpaceDescriptor]
+    ) -> Bool {
+        requiresReconciliation(
+            knownKeys: Set(knownTopology.map(\.key)),
+            observedKeys: Set(observedTopology.map(\.key))
+        )
+    }
+
     public static func visibleOverlayKeys(
         topology: [ManagedSpaceDescriptor],
         desiredColorSpaces: Set<SpaceOverlayKey>,

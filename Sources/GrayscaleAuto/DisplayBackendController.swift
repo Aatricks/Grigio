@@ -29,7 +29,7 @@ final class DisplayBackendController {
         guard mode == .perDisplay else { return }
         _ = GlobalGrayscaleBackend.setGrayscale(false)
         do {
-            try rebuildSpaceOverlays()
+            try refreshTopology()
         } catch {
             switchToGlobalFallback(error)
         }
@@ -49,10 +49,10 @@ final class DisplayBackendController {
             // grayscale for as long as Mission Control is up.
             for shield in missionControlShields.values {
                 if !shield.isVisible { shield.show() }
-                shield.setGrayscaleActive(masterEnabled && forceGrayscale)
+                shield.setHostedGrayscaleActive(masterEnabled && forceGrayscale)
             }
             do {
-                try updateCurrentSpaces()
+                try refreshTopology()
             } catch {
                 switchToGlobalFallback(error)
                 _ = GlobalGrayscaleBackend.setGrayscale(
@@ -68,9 +68,8 @@ final class DisplayBackendController {
                 forceGrayscale: forceGrayscale
             )
             for (key, overlay) in overlays {
-                if !overlay.isVisible { overlay.show() }
                 switch OverlayVisibility.action(
-                    currentlyVisible: overlay.isGrayscaleActive,
+                    currentlyVisible: overlay.isVisible,
                     shouldBeVisible: needed.contains(key)
                 ) {
                 case .show: overlay.setGrayscaleActive(true)
@@ -95,7 +94,7 @@ final class DisplayBackendController {
         _ = GlobalGrayscaleBackend.setGrayscale(false)
     }
 
-    private func rebuildSpaceOverlays() throws {
+    private func refreshTopology() throws {
         let screenPairs: [(CGDirectDisplayID, NSScreen)] = NSScreen.screens.compactMap { screen in
             guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
                 return nil
@@ -103,8 +102,8 @@ final class DisplayBackendController {
             return (id.uint32Value, screen)
         }
         let screens = Dictionary(uniqueKeysWithValues: screenPairs)
-        let nextTopology = ManagedSpaces.topology(for: Array(screens.keys))
-        let topologyDisplayIDs = Set(nextTopology.map(\.displayID))
+        let observedTopology = ManagedSpaces.topology(for: Array(screens.keys))
+        let topologyDisplayIDs = Set(observedTopology.map(\.displayID))
         guard !screens.isEmpty, topologyDisplayIDs == Set(screens.keys) else {
             throw NSError(
                 domain: "com.aatricks.grayscale-auto.backend",
@@ -113,72 +112,48 @@ final class DisplayBackendController {
             )
         }
 
-        let nextKeys = Set(nextTopology.map(\.key))
-        for key in Set(overlays.keys).subtracting(nextKeys) {
-            overlays.removeValue(forKey: key)?.hide()
-        }
-
-        for displayID in Set(missionControlShields.keys).subtracting(screens.keys) {
-            missionControlShields.removeValue(forKey: displayID)?.hide()
-        }
-        for (displayID, screen) in screens where missionControlShields[displayID] == nil {
-            let shield = try BackdropOverlay(frame: screen.frame, joinsAllSpaces: true)
-            shield.setGrayscaleActive(false)
-            shield.show()
-            missionControlShields[displayID] = shield
-        }
-
-        let allSpaceIDs = Set(nextTopology.map(\.spaceID))
-        for space in nextTopology where overlays[space.key] == nil {
-            guard let screen = screens[space.displayID] else { continue }
-            let overlay = try BackdropOverlay(frame: screen.frame, joinsAllSpaces: false)
-            ManagedSpaces.bind(
-                windowNumber: overlay.window.windowNumber,
-                to: space.spaceID,
-                knownSpaceIDs: allSpaceIDs
-            )
-            guard ManagedSpaces.spaceIDs(forWindowNumber: overlay.window.windowNumber) == [space.spaceID] else {
-                overlay.hide()
-                throw NSError(
-                    domain: "com.aatricks.grayscale-auto.backend",
-                    code: 2,
-                    userInfo: [NSLocalizedDescriptionKey: "Could not bind overlay to Space \(space.spaceID)"]
-                )
-            }
-            overlay.show()
-            overlays[space.key] = overlay
-        }
-        topology = nextTopology
-    }
-
-    private func updateCurrentSpaces() throws {
-        let displayIDs = Set(topology.map(\.displayID))
-        guard !displayIDs.isEmpty else {
-            try rebuildSpaceOverlays()
-            return
-        }
-        let current = ManagedSpaces.currentSpaceIDs(for: Array(displayIDs))
-        guard Set(current.keys) == displayIDs else {
-            throw NSError(
-                domain: "com.aatricks.grayscale-auto.backend",
-                code: 3,
-                userInfo: [NSLocalizedDescriptionKey: "Could not resolve every display's current Space"]
-            )
-        }
         let knownKeys = Set(topology.map(\.key))
-        let currentKeys = Set(current.map { SpaceOverlayKey(displayID: $0.key, spaceID: $0.value) })
-        guard currentKeys.isSubset(of: knownKeys) else {
-            try rebuildSpaceOverlays()
-            return
+        let observedKeys = Set(observedTopology.map(\.key))
+
+        if SpaceOverlayVisibility.requiresReconciliation(knownKeys: knownKeys, observedKeys: observedKeys)
+            || Set(missionControlShields.keys) != Set(screens.keys) {
+            for key in knownKeys.subtracting(observedKeys) {
+                overlays.removeValue(forKey: key)?.hide()
+            }
+
+            for displayID in Set(missionControlShields.keys).subtracting(screens.keys) {
+                missionControlShields.removeValue(forKey: displayID)?.hide()
+            }
+            for (displayID, screen) in screens where missionControlShields[displayID] == nil {
+                let shield = try BackdropOverlay(frame: screen.frame, joinsAllSpaces: true)
+                shield.setHostedGrayscaleActive(false)
+                shield.show()
+                missionControlShields[displayID] = shield
+            }
+
+            let allSpaceIDs = Set(observedTopology.map(\.spaceID))
+            for space in observedTopology where overlays[space.key] == nil {
+                guard let screen = screens[space.displayID] else { continue }
+                let overlay = try BackdropOverlay(frame: screen.frame, joinsAllSpaces: false)
+                ManagedSpaces.bind(
+                    windowNumber: overlay.window.windowNumber,
+                    to: space.spaceID,
+                    knownSpaceIDs: allSpaceIDs
+                )
+                guard ManagedSpaces.spaceIDs(forWindowNumber: overlay.window.windowNumber) == [space.spaceID] else {
+                    overlay.hide()
+                    throw NSError(
+                        domain: "com.aatricks.grayscale-auto.backend",
+                        code: 2,
+                        userInfo: [NSLocalizedDescriptionKey: "Could not bind overlay to Space \(space.spaceID)"]
+                    )
+                }
+                overlay.show()
+                overlays[space.key] = overlay
+            }
         }
-        topology = topology.map { space in
-            ManagedSpaceDescriptor(
-                displayID: space.displayID,
-                spaceID: space.spaceID,
-                isCurrent: current[space.displayID] == space.spaceID,
-                isFullscreenApplicationSpace: space.isFullscreenApplicationSpace
-            )
-        }
+
+        topology = observedTopology
     }
 
     private func switchToGlobalFallback(_ error: Error) {

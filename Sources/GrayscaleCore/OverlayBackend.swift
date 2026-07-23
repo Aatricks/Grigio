@@ -54,9 +54,17 @@ public final class BackdropOverlay {
         window.orderOut(nil)
     }
 
+    public func setGrayscaleActive(_ active: Bool) {
+        if active {
+            show()
+        } else {
+            hide()
+        }
+    }
+
     // Toggling the layer instead of the window keeps the overlay in the
     // window server, so grayscale can engage while Mission Control is up.
-    public func setGrayscaleActive(_ active: Bool) {
+    public func setHostedGrayscaleActive(_ active: Bool) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         backdropLayer.isHidden = !active

@@ -43,10 +43,15 @@ MainActor.assumeIsolated {
         expect(overlay.isGrayscaleActive, "a new overlay must start with grayscale active")
         overlay.show()
         overlay.setGrayscaleActive(false)
-        expect(overlay.backdropLayer.isHidden, "deactivating grayscale must hide the backdrop layer")
-        expect(overlay.isVisible, "deactivating grayscale must keep the overlay window ordered in")
+        expect(!overlay.isVisible, "setGrayscaleActive(false) must order the overlay window out")
         overlay.setGrayscaleActive(true)
-        expect(overlay.isGrayscaleActive, "reactivating grayscale must unhide the backdrop layer")
+        expect(overlay.isVisible, "setGrayscaleActive(true) must order the overlay window in")
+        overlay.setHostedGrayscaleActive(false)
+        expect(overlay.backdropLayer.isHidden, "setHostedGrayscaleActive(false) must hide the backdrop layer")
+        expect(overlay.isVisible, "setHostedGrayscaleActive(false) must keep the overlay window ordered in")
+        overlay.setHostedGrayscaleActive(true)
+        expect(!overlay.backdropLayer.isHidden, "setHostedGrayscaleActive(true) must unhide the backdrop layer")
+        expect(overlay.isVisible, "setHostedGrayscaleActive(true) must keep the overlay window ordered in")
         overlay.hide()
         let spaceBoundOverlay = try BackdropOverlay(frame: frame, joinsAllSpaces: false)
         expect(
@@ -497,6 +502,107 @@ do {
     expect(active7 == [100], "immediate reacquisition at 2.0s expiry boundary")
     let active8 = tracker.update(allowlistedPIDs: [100], observation: [], now: now + 8.0)
     expect(active8 == [], "exact expiry 2.0s after boundary reacquisition")
+}
+
+// Test PlaybackSignalPolicy contract
+do {
+    let safariPID: pid_t = 1234
+    let allowlistedMap: [pid_t: String] = [safariPID: "com.apple.Safari"]
+
+    // 1. isPlaying=true, client bundle com.apple.WebKit.GPU, parent bundle com.apple.Safari attributes playback to Safari PID
+    let obs1 = PlaybackSignalPolicy.mediaRemoteObservation(
+        isPlaying: true,
+        clientBundleIdentifier: "com.apple.WebKit.GPU",
+        parentApplicationBundleIdentifier: "com.apple.Safari",
+        allowlistedBundleMap: allowlistedMap
+    )
+    expect(obs1 == [safariPID], "MediaRemote attributes WebKit.GPU with Safari parent to Safari PID")
+
+    // 2. isPlaying=false attributes no PID
+    let obs2 = PlaybackSignalPolicy.mediaRemoteObservation(
+        isPlaying: false,
+        clientBundleIdentifier: "com.apple.WebKit.GPU",
+        parentApplicationBundleIdentifier: "com.apple.Safari",
+        allowlistedBundleMap: allowlistedMap
+    )
+    expect(obs2 == [], "isPlaying=false attributes no PID")
+
+    // 3. isPlaying=nil returns nil/unknown
+    let obsNil = PlaybackSignalPolicy.mediaRemoteObservation(
+        isPlaying: nil,
+        clientBundleIdentifier: "com.apple.WebKit.GPU",
+        parentApplicationBundleIdentifier: "com.apple.Safari",
+        allowlistedBundleMap: allowlistedMap
+    )
+    expect(obsNil == nil, "isPlaying=nil returns nil/unknown")
+
+    // 4. a non-allowlisted parent/client attributes no PID
+    let obs3 = PlaybackSignalPolicy.mediaRemoteObservation(
+        isPlaying: true,
+        clientBundleIdentifier: "com.apple.WebKit.GPU",
+        parentApplicationBundleIdentifier: "com.apple.UnknownApp",
+        allowlistedBundleMap: allowlistedMap
+    )
+    expect(obs3 == [], "non-allowlisted parent/client attributes no PID")
+
+    // 5. power assertion observation nil + MediaRemote Safari observation returns Safari PID
+    let comb1 = PlaybackSignalPolicy.combine(
+        powerAssertions: nil,
+        mediaRemote: [safariPID]
+    )
+    expect(comb1 == [safariPID], "nil power assertions + MediaRemote Safari returns Safari PID")
+
+    // 6. a power assertion PID and MediaRemote Safari PID are unioned
+    let otherPID: pid_t = 5678
+    let comb2 = PlaybackSignalPolicy.combine(
+        powerAssertions: [otherPID],
+        mediaRemote: [safariPID]
+    )
+    expect(comb2 == [otherPID, safariPID], "power assertion PID and MediaRemote Safari PID are unioned")
+
+    // 7. both sources unavailable (nil) remains nil
+    let comb3 = PlaybackSignalPolicy.combine(
+        powerAssertions: nil,
+        mediaRemote: nil
+    )
+    expect(comb3 == nil, "both sources unavailable remains nil")
+
+    // 8. successful empty observations from both sources produce an empty set
+    let comb4 = PlaybackSignalPolicy.combine(
+        powerAssertions: [],
+        mediaRemote: []
+    )
+    expect(comb4 == [], "empty observations from both sources produce empty set")
+}
+
+// Test SpaceOverlayVisibility.requiresReconciliation contract
+do {
+    let knownDesktopPlusFullscreen = [
+        ManagedSpaceDescriptor(displayID: 1, spaceID: 5, isCurrent: true, isFullscreenApplicationSpace: false),
+        ManagedSpaceDescriptor(displayID: 1, spaceID: 195, isCurrent: false, isFullscreenApplicationSpace: true),
+    ]
+    let observedDesktopOnly = [
+        ManagedSpaceDescriptor(displayID: 1, spaceID: 5, isCurrent: true, isFullscreenApplicationSpace: false),
+    ]
+    let observedIdenticalKeys = [
+        ManagedSpaceDescriptor(displayID: 1, spaceID: 5, isCurrent: false, isFullscreenApplicationSpace: false),
+        ManagedSpaceDescriptor(displayID: 1, spaceID: 195, isCurrent: true, isFullscreenApplicationSpace: true),
+    ]
+
+    expect(
+        SpaceOverlayVisibility.requiresReconciliation(
+            knownTopology: knownDesktopPlusFullscreen,
+            observedTopology: observedDesktopOnly
+        ),
+        "known desktop plus fullscreen versus observed desktop only must request rebuild"
+    )
+    expect(
+        !SpaceOverlayVisibility.requiresReconciliation(
+            knownTopology: knownDesktopPlusFullscreen,
+            observedTopology: observedIdenticalKeys
+        ),
+        "identical topology key sets must not request rebuild"
+    )
 }
 
 if failures > 0 {

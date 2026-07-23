@@ -6,6 +6,34 @@ import GrayscaleCore
 import IOKit.pwr_mgt
 
 enum WindowSnapshotProvider {
+    private typealias MRMediaRemoteGetNowPlayingApplicationIsPlayingFunc = @convention(c) (
+        DispatchQueue,
+        @escaping @convention(block) (Bool) -> Void
+    ) -> Void
+
+    private typealias MRMediaRemoteGetNowPlayingClientFunc = @convention(c) (
+        DispatchQueue,
+        @escaping @convention(block) (AnyObject?) -> Void
+    ) -> Void
+
+    private struct MediaRemoteSymbols: Sendable {
+        let getNowPlayingIsPlaying: MRMediaRemoteGetNowPlayingApplicationIsPlayingFunc
+        let getNowPlayingClient: MRMediaRemoteGetNowPlayingClientFunc
+
+        static let shared: MediaRemoteSymbols? = {
+            guard let handle = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_LAZY) else {
+                return nil
+            }
+            guard let isPlayingSym = dlsym(handle, "MRMediaRemoteGetNowPlayingApplicationIsPlaying"),
+                  let clientSym = dlsym(handle, "MRMediaRemoteGetNowPlayingClient") else {
+                return nil
+            }
+            let isPlaying = unsafeBitCast(isPlayingSym, to: MRMediaRemoteGetNowPlayingApplicationIsPlayingFunc.self)
+            let client = unsafeBitCast(clientSym, to: MRMediaRemoteGetNowPlayingClientFunc.self)
+            return MediaRemoteSymbols(getNowPlayingIsPlaying: isPlaying, getNowPlayingClient: client)
+        }()
+    }
+
     static func activeDisplays() -> [DisplayDescriptor] {
         var count: UInt32 = 0
         guard CGGetActiveDisplayList(0, nil, &count) == .success else { return [] }
@@ -56,10 +84,16 @@ enum WindowSnapshotProvider {
         }
     }
 
-    // Video players hold a display-sleep power assertion while actively
-    // playing and drop it when paused, so an allowlisted PID holding one is
-    // a reliable "is playing" signal without private frameworks.
+    // Playback observations combine IOKit display-sleep assertions with
+    // MediaRemote for apps such as Safari.
     static func activePlaybackPIDs(among allowlistedPIDs: Set<pid_t>) -> Set<pid_t>? {
+        guard !allowlistedPIDs.isEmpty else { return [] }
+        let powerAssertionPIDs = powerAssertionPlaybackPIDs(among: allowlistedPIDs)
+        let mediaRemotePIDs = mediaRemotePlaybackPIDs(among: allowlistedPIDs)
+        return PlaybackSignalPolicy.combine(powerAssertions: powerAssertionPIDs, mediaRemote: mediaRemotePIDs)
+    }
+
+    private static func powerAssertionPlaybackPIDs(among allowlistedPIDs: Set<pid_t>) -> Set<pid_t>? {
         guard !allowlistedPIDs.isEmpty else { return [] }
         var assertions: Unmanaged<CFDictionary>?
         guard IOPMCopyAssertionsByProcess(&assertions) == kIOReturnSuccess,
@@ -77,6 +111,79 @@ enum WindowSnapshotProvider {
             }
             return holdsDisplayAssertion ? pid : nil
         })
+    }
+
+    private static let mediaRemoteQueue = DispatchQueue(label: "com.aatricks.grayscale-auto.mediaremote")
+
+    private static func mediaRemotePlaybackPIDs(among allowlistedPIDs: Set<pid_t>) -> Set<pid_t>? {
+        guard !allowlistedPIDs.isEmpty else { return [] }
+        guard let symbols = MediaRemoteSymbols.shared else { return nil }
+
+        let group = DispatchGroup()
+        var isPlayingResult: Bool?
+        var clientResult: AnyObject?
+
+        group.enter()
+        symbols.getNowPlayingIsPlaying(mediaRemoteQueue) { isPlaying in
+            isPlayingResult = isPlaying
+            group.leave()
+        }
+
+        group.enter()
+        symbols.getNowPlayingClient(mediaRemoteQueue) { client in
+            clientResult = client
+            group.leave()
+        }
+
+        let timeoutResult = group.wait(timeout: .now() + .milliseconds(100))
+        if timeoutResult == .timedOut {
+            return nil
+        }
+
+        guard let isPlaying = isPlayingResult else {
+            return nil
+        }
+
+        if !isPlaying {
+            return PlaybackSignalPolicy.mediaRemoteObservation(
+                isPlaying: false,
+                clientBundleIdentifier: nil,
+                parentApplicationBundleIdentifier: nil,
+                allowlistedBundleMap: [:]
+            )
+        }
+
+        guard let client = clientResult else {
+            return nil
+        }
+
+        var clientBundleID: String?
+        var parentBundleID: String?
+        let bundleSel = NSSelectorFromString("bundleIdentifier")
+        let parentSel = NSSelectorFromString("parentApplicationBundleIdentifier")
+
+        if let nsObj = client as? NSObject {
+            if nsObj.responds(to: bundleSel) {
+                clientBundleID = nsObj.perform(bundleSel)?.takeUnretainedValue() as? String
+            }
+            if nsObj.responds(to: parentSel) {
+                parentBundleID = nsObj.perform(parentSel)?.takeUnretainedValue() as? String
+            }
+        }
+
+        var allowlistedBundleMap: [pid_t: String] = [:]
+        for pid in allowlistedPIDs {
+            if let bundleID = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier {
+                allowlistedBundleMap[pid] = bundleID
+            }
+        }
+
+        return PlaybackSignalPolicy.mediaRemoteObservation(
+            isPlaying: true,
+            clientBundleIdentifier: clientBundleID,
+            parentApplicationBundleIdentifier: parentBundleID,
+            allowlistedBundleMap: allowlistedBundleMap
+        )
     }
 
     static func isMissionControlActive(displays: [DisplayDescriptor]) -> Bool {
